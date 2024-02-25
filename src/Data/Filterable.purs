@@ -18,21 +18,23 @@ module Data.Filterable
   , module Data.Compactable
   ) where
 
-import Control.Bind ((=<<))
+import Control.Applicative (pure)
+import Control.Bind ((=<<), bind, discard)
 import Control.Category ((<<<))
+import Control.Monad.ST as ST
 import Data.Array (partition, mapMaybe, filter) as Array
+import Data.Array.ST as STA
 import Data.Compactable (class Compactable, compact, separate)
 import Data.Either (Either(..))
-import Data.Foldable (foldl, foldr)
+import Data.Foldable (foldr)
 import Data.Functor (class Functor, map)
 import Data.HeytingAlgebra (not)
 import Data.List (List(..), filter, mapMaybe) as List
 import Data.Map (Map, empty, insert, alter, toUnfoldable) as Map
 import Data.Maybe (Maybe(..))
 import Data.Monoid (class Monoid, mempty)
-import Data.Semigroup ((<>))
 import Data.Tuple (Tuple(..))
-import Prelude (const, class Ord)
+import Prelude (($), const, class Ord, void)
 
 -- | `Filterable` represents data structures which can be _partitioned_/_filtered_.
 -- |
@@ -145,10 +147,15 @@ cleared :: forall f a b. Filterable f =>
 cleared = filterMap (const Nothing)
 
 instance filterableArray :: Filterable Array where
-  partitionMap p = foldl go {left: [], right: []} where
-    go acc x = case p x of
-      Left l -> acc { left = acc.left <> [l] }
-      Right r -> acc { right = acc.right <> [r] }
+  partitionMap p xs = ST.run do
+    mleft <- STA.new
+    mright <- STA.new
+    ST.foreach xs $ \x -> void case p x of
+      Left l -> STA.push l mleft
+      Right r -> STA.push r mright
+    left <- STA.unsafeFreeze mleft
+    right <- STA.unsafeFreeze mright
+    pure { left, right }
 
   partition = Array.partition
 
